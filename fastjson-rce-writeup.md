@@ -71,34 +71,14 @@ Content-Type: application/json
 **SSRF成功：** HTTP日志出现 `GET /probe from TARGET`
 **RCE成功：** HTTP日志出现 `GET /id-xxx from TARGET`
 
-### 第四步：RCE验证（id命令）
-
-**成功日志：**
-```
-GET /id-uid=0(root)_gid=0(root)_groups=0(root) from 101.32.115.241
-```
-
-**确认root权限RCE！**
-
 ## 成功标志
 
 | 标志 | 含义 |
 |:---|:---|
-| `GET /probe` 回调 | SSRF（JAR下载成功） |
-| `GET /id-xxx` 回调 | ✅ **RCE（命令执行成功）** |
-| `"status":"ok"` + `"result_type":"jar:http:.."` | 类加载+反序列化成功 |
-| `"pwned":true` | 靶场计数确认 |
-
-## 复现结果
-
-| 目标 | 类型 | 结果 |
-|------|------|:----:|
-| `101.32.115.241:8080` | SG-Range靶场 | ✅ **RCE(root)** |
-| `117.72.68.162:8080` | Dto-Lab副本 | ✅ **RCE** |
-| `8.216.40.190:8080` | Demo | ✅ SSRF |
-| `107.175.32.45:8080` | Dto-Lab | ✅ SSRF |
-| `129.226.58.115:8080` | VulnLab | ✅ SSRF |
-| FastJsonParty ×4 | /login端点 | ✅ SSRF |
+| HTTP服务器收到 `GET /probe` | SSRF（JAR下载成功） |
+| HTTP服务器收到 `GET /id-xxx` | **RCE（命令执行成功）** |
+| 请求超时 + HTTP回调 | RCE可能已触发 |
+| 响应包含 `"status":"ok"` | 类加载成功 |
 
 ## 批量检测脚本
 
